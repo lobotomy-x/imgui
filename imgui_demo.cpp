@@ -248,7 +248,7 @@ static void ShowExampleAppConstrainedResize(bool* p_open);
 static void ShowExampleAppFullscreen(bool* p_open);
 static void ShowExampleAppLongText(bool* p_open);
 static void ShowExampleAppWindowTitles(bool* p_open);
-static void ShowExampleAppPong(bool* p_open);
+void ShowExampleAppPong(bool* p_open);  // non-static so example_pong_web can call it directly
 static void ShowExampleMenuFile();
 
 // We split the contents of the big ShowDemoWindow() function into smaller functions
@@ -10828,83 +10828,123 @@ void ShowExampleAppAssetsBrowser(bool* p_open)
 // Ported from a Lua/UEVR script; logic rewritten cleanly in C++.
 //-----------------------------------------------------------------------------
 
-static void ShowExampleAppPong(bool* p_open)
+void ShowExampleAppPong(bool* p_open)
 {
     IMGUI_DEMO_MARKER("Examples/Pong");
-    ImGui::SetNextWindowSize(ImVec2(800.0f, 500.0f), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(820.0f, 560.0f), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Example: Pong", p_open, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
     {
         ImGui::End();
         return;
     }
 
-    // Logical (game-space) canvas — all positions live in this space; rendering scales to the actual window.
+    // Logical (game-space) canvas — all positions live in 640×360; rendering scales to the actual window.
     const float LW = 640.0f;
     const float LH = 360.0f;
 
-    // Tunable constants
-    const float PADDLE_W     = 12.0f;
-    const float PADDLE_H     = 72.0f;
-    const float BALL_R       = 8.0f;
-    const float PLAYER_SPEED = 480.0f;
-    const float ENEMY_SPEED  = 390.0f;
-    const float BALL_SPEED   = 260.0f;
-    const float BALL_MAX_SPD = 780.0f;
+    // ---- Tunable parameters — all exposed in the Settings panel below ----
+    static float s_paddle_w   = 12.0f;
+    static float s_paddle_h   = 72.0f;
+    static float s_ball_r     = 8.0f;
+    static float s_plr_speed  = 480.0f;
+    static float s_emy_speed  = 300.0f;   // reduced from original to be more beatable
+    static float s_ball_speed = 260.0f;
+    static float s_ball_maxspd= 780.0f;
+    static float s_boost_plr  = 1.10f;
+    static float s_boost_emy  = 1.075f;
+    static float s_ai_prec    = 0.75f;    // 0=chaotic, 1=perfect
+    static float s_ai_err     = 45.0f;    // max one-time error in logical pixels
 
-    // Colors
-    const ImU32 COL_FG  = IM_COL32(220, 221, 222, 255);
-    const ImU32 COL_BG  = IM_COL32( 10,  10,  10, 210);
-    const ImU32 COL_DIV = IM_COL32(255, 255, 255,  60);
+    // ---- Game state (persisted across frames via static locals) ----
+    static float player_y      = LH * 0.5f - 36.0f;
+    static float enemy_y       = LH * 0.5f - 36.0f;
+    static float ball_x        = LW * 0.5f;
+    static float ball_y        = LH * 0.5f;
+    static float vel_x         = 0.0f;
+    static float vel_y         = 0.0f;
+    static float enemy_target  = LH * 0.5f;
+    static bool  ai_has_target = false;   // computed once per approach; prevents per-frame jitter
+    static int   score[2]      = { 0, 0 };
+    static bool  waiting       = true;
+    static bool  initialized   = false;
+    static bool  do_reset      = false;   // set by "Reset Game" button
 
-    // Game state persisted across frames via static locals
-    static float player_y     = LH * 0.5f - PADDLE_H * 0.5f;
-    static float enemy_y      = LH * 0.5f - PADDLE_H * 0.5f;
-    static float ball_x       = LW * 0.5f;
-    static float ball_y       = LH * 0.5f;
-    static float vel_x        = 0.0f;
-    static float vel_y        = 0.0f;
-    static float enemy_target = LH * 0.5f;
-    static float ai_precision = 0.9f;
-    static int   score[2]     = { 0, 0 };   // [0]=player, [1]=enemy
-    static bool  waiting      = true;
-    static bool  initialized  = false;
+    // ---- Settings panel ----
+    if (ImGui::CollapsingHeader("Settings"))
+    {
+        const float sw = 165.0f;
+        ImGui::BeginGroup();
+        ImGui::SeparatorText("Player");
+        ImGui::SetNextItemWidth(sw); ImGui::SliderFloat("Player Speed##pong",  &s_plr_speed,   100.0f, 1000.0f, "%.0f px/s");
+        ImGui::SeparatorText("Enemy AI");
+        ImGui::SetNextItemWidth(sw); ImGui::SliderFloat("Enemy Speed##pong",   &s_emy_speed,    50.0f, 1000.0f, "%.0f px/s");
+        ImGui::SetNextItemWidth(sw); ImGui::SliderFloat("AI Precision##pong",  &s_ai_prec,       0.0f,    1.0f, "%.2f");
+        ImGui::SetNextItemWidth(sw); ImGui::SliderFloat("AI Error##pong",      &s_ai_err,         0.0f,  150.0f, "%.0f px");
+        ImGui::EndGroup();
 
-    // Canvas metrics
+        ImGui::SameLine(0.0f, 30.0f);
+        ImGui::BeginGroup();
+        ImGui::SeparatorText("Ball");
+        ImGui::SetNextItemWidth(sw); ImGui::SliderFloat("Ball Radius##pong",   &s_ball_r,        3.0f,   20.0f, "%.0f");
+        ImGui::SetNextItemWidth(sw); ImGui::SliderFloat("Initial Speed##pong", &s_ball_speed,   100.0f,  600.0f, "%.0f px/s");
+        ImGui::SetNextItemWidth(sw); ImGui::SliderFloat("Max Speed##pong",     &s_ball_maxspd,  300.0f, 1200.0f, "%.0f px/s");
+        ImGui::SetNextItemWidth(sw); ImGui::SliderFloat("Player Boost##pong",  &s_boost_plr,     1.0f,    1.5f, "x%.3f");
+        ImGui::SetNextItemWidth(sw); ImGui::SliderFloat("Enemy Boost##pong",   &s_boost_emy,     1.0f,    1.5f, "x%.3f");
+        ImGui::SeparatorText("Paddles");
+        ImGui::SetNextItemWidth(sw); ImGui::SliderFloat("Paddle Width##pong",  &s_paddle_w,      5.0f,   30.0f, "%.0f");
+        ImGui::SetNextItemWidth(sw); ImGui::SliderFloat("Paddle Height##pong", &s_paddle_h,     30.0f,  140.0f, "%.0f");
+        ImGui::EndGroup();
+
+        ImGui::Spacing();
+        if (ImGui::Button("Reset Game"))    do_reset = true;
+        ImGui::SameLine();
+        if (ImGui::Button("Reset Settings"))
+        {
+            s_paddle_w = 12.0f; s_paddle_h = 72.0f; s_ball_r = 8.0f;
+            s_plr_speed = 480.0f; s_emy_speed = 300.0f;
+            s_ball_speed = 260.0f; s_ball_maxspd = 780.0f;
+            s_boost_plr = 1.10f; s_boost_emy = 1.075f;
+            s_ai_prec = 0.75f; s_ai_err = 45.0f;
+        }
+        ImGui::Separator();
+    }
+
+    // ---- Canvas setup ----
     ImVec2 origin = ImGui::GetCursorScreenPos();
     ImVec2 avail  = ImGui::GetContentRegionAvail();
     if (avail.x < 200.0f) avail.x = 200.0f;
     if (avail.y < 100.0f) avail.y = 100.0f;
     const float W  = avail.x;
     const float H  = avail.y;
-    const float sx = W / LW;   // logical → screen x scale
-    const float sy = H / LH;   // logical → screen y scale
+    const float sx = W / LW;
+    const float sy = H / LH;
 
-    // Map a logical position to a screen position
+    // Logical → screen coordinate helper
     auto LS = [&](float lx, float ly) -> ImVec2
     {
         return ImVec2(origin.x + lx * sx, origin.y + ly * sy);
     };
 
-    // Reset ball + paddles to center and pick a random serve direction
+    // Reset ball + paddles to center; pick a random serve direction
     auto reset_round = [&]()
     {
-        player_y      = LH * 0.5f - PADDLE_H * 0.5f;
-        enemy_y       = LH * 0.5f - PADDLE_H * 0.5f;
+        player_y      = LH * 0.5f - s_paddle_h * 0.5f;
+        enemy_y       = LH * 0.5f - s_paddle_h * 0.5f;
         ball_x        = LW * 0.5f;
         ball_y        = LH * 0.5f;
-        float angle   = ((float)(rand() % 61) - 30.0f) * (3.14159265f / 180.0f); // -30° to +30°
+        float angle   = ((float)(rand() % 61) - 30.0f) * (3.14159265f / 180.0f);
         float dir     = (rand() % 2 == 0) ? 1.0f : -1.0f;
-        vel_x         = dir * cosf(angle) * BALL_SPEED;
-        vel_y         = sinf(angle) * BALL_SPEED;
+        vel_x         = dir * cosf(angle) * s_ball_speed;
+        vel_y         = sinf(angle) * s_ball_speed;
         enemy_target  = LH * 0.5f;
-        ai_precision  = 0.9f;
+        ai_has_target = false;
         waiting       = true;
     };
 
-    if (!initialized) { reset_round(); initialized = true; }
+    if (!initialized || do_reset) { reset_round(); initialized = true; do_reset = false; }
 
     float dt = ImGui::GetIO().DeltaTime;
-    if (dt > 0.05f) dt = 0.016f; // cap dt to avoid spiral-of-death on frame spikes
+    if (dt > 0.05f) dt = 0.016f;
 
     // -------------------------------------------------------------------------
     // Input & game logic
@@ -10918,69 +10958,80 @@ static void ShowExampleAppPong(bool* p_open)
     {
         // Player movement — W/S or arrow keys
         if (ImGui::IsKeyDown(ImGuiKey_W) || ImGui::IsKeyDown(ImGuiKey_UpArrow))
-            player_y -= PLAYER_SPEED * dt;
+            player_y -= s_plr_speed * dt;
         if (ImGui::IsKeyDown(ImGuiKey_S) || ImGui::IsKeyDown(ImGuiKey_DownArrow))
-            player_y += PLAYER_SPEED * dt;
-        player_y = IM_CLAMP(player_y, 0.0f, LH - PADDLE_H);
+            player_y += s_plr_speed * dt;
+        player_y = IM_CLAMP(player_y, 0.0f, LH - s_paddle_h);
 
         // Ball movement
         ball_x += vel_x * dt;
         ball_y += vel_y * dt;
 
         // Top / bottom wall bounce
-        if (ball_y - BALL_R <= 0.0f)    { ball_y = BALL_R;        vel_y =  fabsf(vel_y); }
-        if (ball_y + BALL_R >= LH)      { ball_y = LH - BALL_R;   vel_y = -fabsf(vel_y); }
+        if (ball_y - s_ball_r <= 0.0f)  { ball_y = s_ball_r;      vel_y =  fabsf(vel_y); }
+        if (ball_y + s_ball_r >= LH)    { ball_y = LH - s_ball_r; vel_y = -fabsf(vel_y); }
 
         // Player paddle (left) collision
-        if (vel_x < 0.0f && ball_x - BALL_R <= PADDLE_W)
+        if (vel_x < 0.0f && ball_x - s_ball_r <= s_paddle_w)
         {
-            if (ball_y >= player_y && ball_y <= player_y + PADDLE_H)
+            if (ball_y >= player_y && ball_y <= player_y + s_paddle_h)
             {
-                ball_x = PADDLE_W + BALL_R;
-                vel_x  = fabsf(vel_x) * 1.1f; // 10% speed boost on player hit
-                // Deflect angle based on where the ball struck the paddle face
-                float t = (ball_y - (player_y + PADDLE_H * 0.5f)) / (PADDLE_H * 0.5f);
-                vel_y   = t * 280.0f;
+                ball_x        = s_paddle_w + s_ball_r;
+                vel_x         = fabsf(vel_x) * s_boost_plr;
+                float t       = (ball_y - (player_y + s_paddle_h * 0.5f)) / (s_paddle_h * 0.5f);
+                vel_y         = t * 280.0f;
+                ai_has_target = false; // force AI to re-predict on the new approach
             }
         }
 
         // Enemy paddle (right) collision
-        if (vel_x > 0.0f && ball_x + BALL_R >= LW - PADDLE_W)
+        if (vel_x > 0.0f && ball_x + s_ball_r >= LW - s_paddle_w)
         {
-            if (ball_y >= enemy_y && ball_y <= enemy_y + PADDLE_H)
+            if (ball_y >= enemy_y && ball_y <= enemy_y + s_paddle_h)
             {
-                ball_x = LW - PADDLE_W - BALL_R;
-                vel_x  = -fabsf(vel_x) * 1.075f; // 7.5% speed boost on enemy hit
-                ai_precision = 0.7f + (float)(rand() % 25) / 100.0f; // degrade briefly
+                ball_x        = LW - s_paddle_w - s_ball_r;
+                vel_x         = -fabsf(vel_x) * s_boost_emy;
+                ai_has_target = false;
             }
         }
 
-        // Enforce speed cap
+        // Speed cap
         float spd = sqrtf(vel_x * vel_x + vel_y * vel_y);
-        if (spd > BALL_MAX_SPD) { vel_x = vel_x / spd * BALL_MAX_SPD; vel_y = vel_y / spd * BALL_MAX_SPD; }
+        if (spd > s_ball_maxspd) { vel_x = vel_x / spd * s_ball_maxspd; vel_y = vel_y / spd * s_ball_maxspd; }
 
         // Scoring
-        if (ball_x <= 0.0f)    { score[1]++; reset_round(); }
-        if (ball_x >= LW)      { score[0]++; reset_round(); }
+        if (ball_x <= 0.0f) { score[1]++; reset_round(); }
+        if (ball_x >= LW)   { score[0]++; reset_round(); }
 
-        // Enemy AI: predict where the ball will reach the right paddle
+        // Enemy AI — prediction is computed ONCE when the ball starts moving toward the enemy,
+        // NOT recalculated every frame (old behavior caused per-frame jitter). Because the
+        // prediction ignores wall bounces, the AI misses when the player exploits bounce angles.
         if (vel_x > 0.0f)
         {
-            float time_to_hit = ((LW - PADDLE_W) - ball_x) / vel_x;
-            float pred_y      = ball_y + vel_y * time_to_hit;
-            pred_y += (float)(rand() % 40 - 20) * (1.0f - ai_precision); // intentional error
-            enemy_target = pred_y - PADDLE_H * 0.5f;
+            if (!ai_has_target)
+            {
+                float dist_x  = (LW - s_paddle_w) - ball_x;
+                float t2hit   = dist_x / vel_x;
+                float pred_y  = ball_y + vel_y * t2hit;
+                // One-time random error, scaled by (1 - precision)
+                float err = ((float)(rand() % 201) - 100.0f) * 0.01f; // -1.0 to +1.0
+                pred_y       += err * s_ai_err * (1.0f - s_ai_prec);
+                enemy_target  = IM_CLAMP(pred_y - s_paddle_h * 0.5f, 0.0f, LH - s_paddle_h);
+                ai_has_target = true;
+            }
+            float diff = enemy_target - enemy_y;
+            if (diff >  2.0f) enemy_y += s_emy_speed * dt;
+            if (diff < -2.0f) enemy_y -= s_emy_speed * dt;
         }
         else
         {
-            enemy_target = LH * 0.5f - PADDLE_H * 0.5f; // drift to center when ball moves away
+            // Ball moving away: drift toward center at half speed
+            ai_has_target = false;
+            float diff = LH * 0.5f - s_paddle_h * 0.5f - enemy_y;
+            if (diff >  2.0f) enemy_y += s_emy_speed * 0.5f * dt;
+            if (diff < -2.0f) enemy_y -= s_emy_speed * 0.5f * dt;
         }
-        enemy_target = IM_CLAMP(enemy_target, 0.0f, LH - PADDLE_H);
-
-        float diff = enemy_target - enemy_y;
-        if (diff >  2.0f) enemy_y += ENEMY_SPEED * dt;
-        if (diff < -2.0f) enemy_y -= ENEMY_SPEED * dt;
-        enemy_y = IM_CLAMP(enemy_y, 0.0f, LH - PADDLE_H);
+        enemy_y = IM_CLAMP(enemy_y, 0.0f, LH - s_paddle_h);
     }
 
     // -------------------------------------------------------------------------
@@ -10991,39 +11042,39 @@ static void ShowExampleAppPong(bool* p_open)
     dl->PushClipRect(origin, ImVec2(origin.x + W, origin.y + H), true);
 
     // Background
-    dl->AddRectFilled(origin, ImVec2(origin.x + W, origin.y + H), COL_BG);
+    dl->AddRectFilled(origin, ImVec2(origin.x + W, origin.y + H), IM_COL32(10, 10, 10, 210));
 
     // Dashed center divider
     for (float y = 0.0f; y < LH; y += 16.0f)
     {
         float y1 = y + 8.0f < LH ? y + 8.0f : LH;
-        dl->AddRectFilled(LS(LW * 0.5f - 1.0f, y), LS(LW * 0.5f + 1.0f, y1), COL_DIV);
+        dl->AddRectFilled(LS(LW * 0.5f - 1.0f, y), LS(LW * 0.5f + 1.0f, y1), IM_COL32(255, 255, 255, 60));
     }
 
     // Paddles
-    dl->AddRectFilled(LS(0.0f,          player_y), LS(PADDLE_W,        player_y + PADDLE_H), COL_FG, 2.0f);
-    dl->AddRectFilled(LS(LW - PADDLE_W, enemy_y),  LS(LW,              enemy_y  + PADDLE_H), COL_FG, 2.0f);
+    dl->AddRectFilled(LS(0.0f,            player_y), LS(s_paddle_w,          player_y + s_paddle_h), IM_COL32(220, 221, 222, 255), 2.0f);
+    dl->AddRectFilled(LS(LW - s_paddle_w, enemy_y),  LS(LW,                  enemy_y  + s_paddle_h), IM_COL32(220, 221, 222, 255), 2.0f);
 
     // Ball
-    float ball_screen_r = BALL_R * (sx < sy ? sx : sy);
-    dl->AddCircleFilled(LS(ball_x, ball_y), ball_screen_r, COL_FG, 16);
+    float ball_screen_r = s_ball_r * (sx < sy ? sx : sy);
+    dl->AddCircleFilled(LS(ball_x, ball_y), ball_screen_r, IM_COL32(220, 221, 222, 255), 16);
 
-    // Score (drawn at 3x font size, centered in each half)
+    // Score — drawn at 3× font scale, centered in each half
     {
-        ImFont* font       = ImGui::GetFont();
-        float   default_sz = ImGui::GetFontSize();
-        float   big_sz     = default_sz * 3.0f;
-        float   tscale     = big_sz / default_sz;
-        float   score_sy   = origin.y + 10.0f * sy;
+        ImFont* font     = ImGui::GetFont();
+        float   def_sz   = ImGui::GetFontSize();
+        float   big_sz   = def_sz * 3.0f;
+        float   tscale   = big_sz / def_sz;
+        float   score_sy = origin.y + 10.0f * sy;
         char    buf[8];
 
         snprintf(buf, sizeof(buf), "%d", score[0]);
         ImVec2 ts = ImGui::CalcTextSize(buf);
-        dl->AddText(font, big_sz, ImVec2(origin.x + LW * 0.25f * sx - ts.x * tscale * 0.5f, score_sy), COL_FG, buf);
+        dl->AddText(font, big_sz, ImVec2(origin.x + LW * 0.25f * sx - ts.x * tscale * 0.5f, score_sy), IM_COL32(220, 221, 222, 255), buf);
 
         snprintf(buf, sizeof(buf), "%d", score[1]);
         ts = ImGui::CalcTextSize(buf);
-        dl->AddText(font, big_sz, ImVec2(origin.x + LW * 0.75f * sx - ts.x * tscale * 0.5f, score_sy), COL_FG, buf);
+        dl->AddText(font, big_sz, ImVec2(origin.x + LW * 0.75f * sx - ts.x * tscale * 0.5f, score_sy), IM_COL32(220, 221, 222, 255), buf);
     }
 
     // Waiting / start overlay
@@ -11035,8 +11086,8 @@ static void ShowExampleAppPong(bool* p_open)
         ImVec2 hint_sz = ImGui::CalcTextSize(hint);
         float  cx      = origin.x + LW * 0.5f * sx;
         float  cy      = origin.y + LH * 0.5f * sy;
-        dl->AddText(ImVec2(cx - msg_sz.x * 0.5f,  cy - msg_sz.y * 1.2f),     IM_COL32(255, 255, 255, 220), msg);
-        dl->AddText(ImVec2(cx - hint_sz.x * 0.5f, cy + hint_sz.y * 0.2f),    IM_COL32(160, 160, 160, 180), hint);
+        dl->AddText(ImVec2(cx - msg_sz.x * 0.5f,  cy - msg_sz.y * 1.2f),  IM_COL32(255, 255, 255, 220), msg);
+        dl->AddText(ImVec2(cx - hint_sz.x * 0.5f, cy + hint_sz.y * 0.2f), IM_COL32(160, 160, 160, 180), hint);
     }
 
     dl->PopClipRect();
