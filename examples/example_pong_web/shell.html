@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no"/>
-    <title>Pong on Dear ImGui (WebAssembly)</title>
+    <title>Mini-games on Dear ImGui (WebAssembly)</title>
     <style>
         body { margin: 0; background-color: #000; color: #ddd; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
         .emscripten {
@@ -64,10 +64,10 @@
     <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()"></canvas>
     <div id="about">
         <button id="about-close" type="button" aria-label="close">&times;</button>
-        <h1>Pong on Dear ImGui</h1>
-        <p>The classic game running inside <a href="https://github.com/ocornut/imgui" target="_blank" rel="noopener">Dear ImGui</a> &mdash; the immediate-mode GUI library that powers debug overlays, level editors, and tooling in countless games and engines &mdash; compiled to WebAssembly via Emscripten. The exact same C++ source builds natively or runs in your browser; paddles, ball, scores, and the Settings window all flow through ImGui&rsquo;s draw API into WebGL.</p>
-        <p>Originally a Lua script for <a href="https://github.com/praydog/UEVR" target="_blank" rel="noopener">UEVR</a> (Unreal Engine VR), ported to C++ and tuned here &mdash; bounce-aware AI prediction, live difficulty sliders, and a few rough edges still showing through.</p>
-        <p>Press <kbd>SPACE</kbd>, move with <kbd>W</kbd>/<kbd>S</kbd> or <kbd>&uarr;</kbd>/<kbd>&darr;</kbd>. Tweak the AI from the <em>Settings</em> menu.</p>
+        <h1>Mini-games on Dear ImGui</h1>
+        <p>Two small games &mdash; Pong and Tetris &mdash; running inside <a href="https://github.com/ocornut/imgui" target="_blank" rel="noopener">Dear ImGui</a>, the immediate-mode GUI library that powers debug overlays, level editors, and tooling in countless games and engines, compiled to WebAssembly via Emscripten. The exact same C++ source builds natively or runs in your browser; every paddle, block, score, and Settings window flows through ImGui&rsquo;s draw API into WebGL.</p>
+        <p>Pong started as a Lua script for <a href="https://github.com/praydog/UEVR" target="_blank" rel="noopener">UEVR</a> (Unreal Engine VR), then ported to C++ and tuned here &mdash; bounce-aware AI, live difficulty sliders. Tetris is built fresh in the same shape: a single self-contained function with a menu bar, settings window, DAS/ARR input feel, and a ghost piece.</p>
+        <p><strong>Pong:</strong> <kbd>SPACE</kbd> start, <kbd>W</kbd>/<kbd>S</kbd> or <kbd>&uarr;</kbd>/<kbd>&darr;</kbd> move. &nbsp; <strong>Tetris:</strong> <kbd>A</kbd>/<kbd>D</kbd> move, <kbd>W</kbd> rotate, <kbd>Z</kbd> CCW, <kbd>S</kbd> soft drop, <kbd>SPACE</kbd> hard drop, <kbd>P</kbd> pause.</p>
         <p><a href="https://github.com/lobotomy-x/imgui/tree/claude/stoic-volta-fUzUO/examples/example_pong_web" target="_blank" rel="noopener">Source on GitHub &rarr;</a></p>
     </div>
     <script>

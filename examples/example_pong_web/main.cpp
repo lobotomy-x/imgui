@@ -20,8 +20,9 @@
 #include "../libs/emscripten/emscripten_mainloop_stub.h"
 #endif
 
-// Defined in imgui_demo.cpp (non-static so we can call it here)
+// Defined in imgui_demo.cpp (non-static so we can call them here)
 extern void ShowExampleAppPong(bool* p_open);
+extern void ShowExampleAppTetris(bool* p_open);
 
 int main(int, char**)
 {
@@ -94,7 +95,8 @@ int main(int, char**)
     ImGui_ImplSDL2_InitForOpenGL(window, gl_context);
     ImGui_ImplOpenGL3_Init(glsl_version);
 
-    bool open = true;
+    bool pong_open = true;
+    bool tetris_open = true;
     bool done = false;
 #ifdef __EMSCRIPTEN__
     io.IniFilename = nullptr;
@@ -123,7 +125,17 @@ int main(int, char**)
         ImGui_ImplSDL2_NewFrame();
         ImGui::NewFrame();
 
-        ShowExampleAppPong(&open);
+        if (pong_open)   ShowExampleAppPong(&pong_open);
+        if (tetris_open) ShowExampleAppTetris(&tetris_open);
+        // Tiny launcher so closed games can be reopened.
+        ImGui::SetNextWindowSize(ImVec2(160.0f, 0.0f), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowPos(ImVec2(8.0f, 8.0f), ImGuiCond_FirstUseEver);
+        if (ImGui::Begin("Mini-games", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            ImGui::Checkbox("Pong",   &pong_open);
+            ImGui::Checkbox("Tetris", &tetris_open);
+        }
+        ImGui::End();
 
         ImGui::Render();
         glViewport(0, 0, (int)io.DisplaySize.x, (int)io.DisplaySize.y);

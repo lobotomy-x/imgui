@@ -121,6 +121,7 @@ Index of this file:
 // [SECTION] Example App: Documents Handling / ShowExampleAppDocuments()
 // [SECTION] Example App: Assets Browser / ShowExampleAppAssetsBrowser()
 // [SECTION] Example App: Pong Game / ShowExampleAppPong()
+// [SECTION] Example App: Tetris Game / ShowExampleAppTetris()
 
 */
 
@@ -253,7 +254,8 @@ static void ShowExampleAppConstrainedResize(bool* p_open);
 static void ShowExampleAppFullscreen(bool* p_open);
 static void ShowExampleAppLongText(bool* p_open);
 static void ShowExampleAppWindowTitles(bool* p_open);
-void ShowExampleAppPong(bool* p_open);  // non-static so example_pong_web can call it directly
+void ShowExampleAppPong(bool* p_open);    // non-static so example_pong_web can call it directly
+void ShowExampleAppTetris(bool* p_open);  // non-static for the same reason
 static void ShowExampleMenuFile();
 
 // We split the contents of the big ShowDemoWindow() function into smaller functions
@@ -320,6 +322,7 @@ struct ImGuiDemoWindowData
     bool ShowAppLongText = false;
     bool ShowAppWindowTitles = false;
     bool ShowAppPong = false;
+    bool ShowAppTetris = false;
 
     // Dear ImGui Tools (accessible from the "Tools" menu)
     bool ShowMetrics = false;
@@ -366,6 +369,7 @@ void ImGui::ShowDemoWindow(bool* p_open)
     if (demo_data.ShowAppLongText) { ShowExampleAppLongText(&demo_data.ShowAppLongText); }
     if (demo_data.ShowAppWindowTitles) { ShowExampleAppWindowTitles(&demo_data.ShowAppWindowTitles); }
     if (demo_data.ShowAppPong) { ShowExampleAppPong(&demo_data.ShowAppPong); }
+    if (demo_data.ShowAppTetris) { ShowExampleAppTetris(&demo_data.ShowAppTetris); }
 
     // Dear ImGui Tools (accessible from the "Tools" menu)
     if (demo_data.ShowMetrics) { ImGui::ShowMetricsWindow(&demo_data.ShowMetrics); }
@@ -684,6 +688,7 @@ static void DemoWindowMenuBar(ImGuiDemoWindowData* demo_data)
             ImGui::MenuItem("Simple layout", NULL, &demo_data->ShowAppLayout);
             ImGui::MenuItem("Simple overlay", NULL, &demo_data->ShowAppSimpleOverlay);
             ImGui::MenuItem("Pong", NULL, &demo_data->ShowAppPong);
+            ImGui::MenuItem("Tetris", NULL, &demo_data->ShowAppTetris);
 
             ImGui::SeparatorText("Concepts");
             ImGui::MenuItem("Auto-resizing window", NULL, &demo_data->ShowAppAutoResize);
@@ -11151,6 +11156,483 @@ void ShowExampleAppPong(bool* p_open)
         float  cy = origin.y + LH * 0.5f * sy;
         dl->AddText(ImVec2(cx - msg_sz.x * 0.5f, cy - msg_sz.y * 1.2f), IM_COL32(255, 255, 255, 220), msg);
         dl->AddText(ImVec2(cx - hint_sz.x * 0.5f, cy + hint_sz.y * 0.2f), IM_COL32(160, 160, 160, 180), hint);
+    }
+
+    dl->PopClipRect();
+    ImGui::End();
+}
+
+//-----------------------------------------------------------------------------
+// [SECTION] Example App: Tetris Game / ShowExampleAppTetris()
+//-----------------------------------------------------------------------------
+// Demonstrates: ImDrawList custom rendering, frame-rate independent timing via
+// GetIO().DeltaTime, keyboard input with IsKeyDown/IsKeyPressed, DAS/ARR-style
+// auto-repeat, and a settings panel toggled from the window menu bar — the
+// same shape as the Pong example, applied to a heavier game.
+//-----------------------------------------------------------------------------
+
+void ShowExampleAppTetris(bool* p_open)
+{
+    IMGUI_DEMO_MARKER("Examples/Tetris");
+    ImGui::SetNextWindowSize(ImVec2(720.0f, 720.0f), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Example: Tetris", p_open,
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_MenuBar))
+    {
+        ImGui::End();
+        return;
+    }
+
+    // Logical board (10 cols × 20 rows). Rendering scales cells to the actual window.
+    const int COLS = 10;
+    const int ROWS = 20;
+
+    // ---- Tunable parameters — exposed in the Settings window toggled from the menu bar ----
+    static float s_drop_base    = 0.80f;   // seconds per row at level 1
+    static float s_speed_factor = 0.85f;   // multiplier per level (lower = faster ramp)
+    static float s_soft_factor  = 0.08f;   // soft-drop interval as fraction of normal
+    static float s_lock_delay   = 0.50f;   // seconds touching ground before locking
+    static float s_das_delay    = 0.17f;   // delay before horizontal auto-shift starts
+    static float s_arr_rate     = 0.05f;   // auto-shift interval after DAS expires
+    static int   s_start_level  = 1;
+    static bool  s_show_ghost   = true;
+    static bool  s_show_grid    = true;
+
+    // ---- Piece data: 7 tetrominoes × 4 rotations × 4 cells of (x, y) in a 4x4 bounding box ----
+    // Color indices: 1=I 2=O 3=T 4=S 5=Z 6=L 7=J
+    static const ImS8 P[7][4][4][2] = {
+        // I
+        { {{0,1},{1,1},{2,1},{3,1}}, {{2,0},{2,1},{2,2},{2,3}}, {{0,2},{1,2},{2,2},{3,2}}, {{1,0},{1,1},{1,2},{1,3}} },
+        // O
+        { {{1,0},{2,0},{1,1},{2,1}}, {{1,0},{2,0},{1,1},{2,1}}, {{1,0},{2,0},{1,1},{2,1}}, {{1,0},{2,0},{1,1},{2,1}} },
+        // T
+        { {{1,0},{0,1},{1,1},{2,1}}, {{1,0},{1,1},{2,1},{1,2}}, {{0,1},{1,1},{2,1},{1,2}}, {{1,0},{0,1},{1,1},{1,2}} },
+        // S
+        { {{1,0},{2,0},{0,1},{1,1}}, {{1,0},{1,1},{2,1},{2,2}}, {{1,1},{2,1},{0,2},{1,2}}, {{0,0},{0,1},{1,1},{1,2}} },
+        // Z
+        { {{0,0},{1,0},{1,1},{2,1}}, {{2,0},{1,1},{2,1},{1,2}}, {{0,1},{1,1},{1,2},{2,2}}, {{1,0},{0,1},{1,1},{0,2}} },
+        // L
+        { {{2,0},{0,1},{1,1},{2,1}}, {{1,0},{1,1},{1,2},{2,2}}, {{0,1},{1,1},{2,1},{0,2}}, {{0,0},{1,0},{1,1},{1,2}} },
+        // J
+        { {{0,0},{0,1},{1,1},{2,1}}, {{1,0},{2,0},{1,1},{1,2}}, {{0,1},{1,1},{2,1},{2,2}}, {{1,0},{1,1},{0,2},{1,2}} },
+    };
+    static const ImU32 PCOL[8] = {
+        IM_COL32(  0,   0,   0,   0),
+        IM_COL32( 30, 210, 230, 255), // I cyan
+        IM_COL32(230, 210,  30, 255), // O yellow
+        IM_COL32(170,  70, 220, 255), // T purple
+        IM_COL32( 40, 200,  90, 255), // S green
+        IM_COL32(220,  60,  60, 255), // Z red
+        IM_COL32(230, 140,  30, 255), // L orange
+        IM_COL32( 60, 110, 220, 255), // J blue
+    };
+
+    // ---- Game state (persisted across frames via static locals) ----
+    static ImU8  board[ROWS][COLS] = {};
+    static int   cur_type    = 0;
+    static int   cur_rot     = 0;
+    static int   cur_x       = 0;
+    static int   cur_y       = 0;
+    static int   next_type   = -1;
+    static int   score       = 0;
+    static int   lines       = 0;
+    static int   level       = 1;
+    static float drop_timer  = 0.0f;
+    static float lock_timer  = 0.0f;
+    static bool  on_ground   = false;
+    static float das_left    = 0.0f, das_right = 0.0f;
+    static float arr_left    = 0.0f, arr_right = 0.0f;
+    static bool  waiting     = true;     // press SPACE to start / continue
+    static bool  initialized = false;
+    static bool  do_reset    = false;
+    static bool  paused      = false;
+    static bool  game_over   = false;
+    static bool  show_settings = false;
+
+    // ---- Helpers ----
+    auto cell_at = [&](int x, int y) -> ImU8 {
+        if (x < 0 || x >= COLS || y < 0 || y >= ROWS) return 255; // out-of-bounds counts as solid
+        return board[y][x];
+    };
+
+    auto collides = [&](int type, int rot, int x, int y) -> bool {
+        for (int i = 0; i < 4; i++)
+        {
+            int cx = x + P[type][rot][i][0];
+            int cy = y + P[type][rot][i][1];
+            if (cx < 0 || cx >= COLS || cy >= ROWS) return true;
+            if (cy < 0) continue; // above the playfield is allowed (spawn)
+            if (board[cy][cx]) return true;
+        }
+        return false;
+    };
+
+    auto spawn_piece = [&]() {
+        cur_type = (next_type >= 0) ? next_type : (rand() % 7);
+        next_type = rand() % 7;
+        cur_rot  = 0;
+        cur_x    = (COLS - 4) / 2;
+        cur_y    = -1; // start half-off the top so the piece slides in
+        lock_timer = 0.0f;
+        on_ground = false;
+        if (collides(cur_type, cur_rot, cur_x, cur_y + 1))
+            game_over = true; // blocked at spawn
+    };
+
+    auto lock_piece = [&]() {
+        ImU8 color = (ImU8)(cur_type + 1);
+        for (int i = 0; i < 4; i++)
+        {
+            int cx = cur_x + P[cur_type][cur_rot][i][0];
+            int cy = cur_y + P[cur_type][cur_rot][i][1];
+            if (cy >= 0 && cy < ROWS && cx >= 0 && cx < COLS) board[cy][cx] = color;
+        }
+        // Clear full rows (top-to-bottom scan, compacting downward)
+        int cleared = 0;
+        for (int y = ROWS - 1; y >= 0; )
+        {
+            bool full = true;
+            for (int x = 0; x < COLS; x++) if (!board[y][x]) { full = false; break; }
+            if (full)
+            {
+                for (int yy = y; yy > 0; yy--)
+                    for (int x = 0; x < COLS; x++) board[yy][x] = board[yy-1][x];
+                for (int x = 0; x < COLS; x++) board[0][x] = 0;
+                cleared++;
+                // re-check current y (now holds the row that was above)
+            }
+            else
+            {
+                y--;
+            }
+        }
+        if (cleared > 0)
+        {
+            static const int line_score[5] = { 0, 100, 300, 500, 800 };
+            score += line_score[cleared] * level;
+            lines += cleared;
+            level = s_start_level + lines / 10;
+        }
+        spawn_piece();
+    };
+
+    auto try_move = [&](int dx, int dy) -> bool {
+        if (collides(cur_type, cur_rot, cur_x + dx, cur_y + dy)) return false;
+        cur_x += dx; cur_y += dy;
+        return true;
+    };
+
+    auto try_rotate = [&](int dir) {
+        int new_rot = (cur_rot + (dir > 0 ? 1 : 3)) % 4;
+        // Simple wall kicks: try offsets 0, ±1, ±2.
+        const int kicks[] = { 0, -1, 1, -2, 2 };
+        for (int k = 0; k < IM_ARRAYSIZE(kicks); k++)
+        {
+            if (!collides(cur_type, new_rot, cur_x + kicks[k], cur_y))
+            {
+                cur_x += kicks[k];
+                cur_rot = new_rot;
+                return;
+            }
+        }
+    };
+
+    auto reset_game = [&]() {
+        for (int y = 0; y < ROWS; y++) for (int x = 0; x < COLS; x++) board[y][x] = 0;
+        score = 0; lines = 0; level = s_start_level;
+        next_type = -1;
+        game_over = false;
+        waiting = true;
+        spawn_piece(); // pre-roll the queue
+        // spawn_piece may have set game_over if start level is wonky — reset
+        game_over = false;
+    };
+
+    auto reset_settings = [&]() {
+        s_drop_base = 0.80f; s_speed_factor = 0.85f; s_soft_factor = 0.08f;
+        s_lock_delay = 0.50f; s_das_delay = 0.17f; s_arr_rate = 0.05f;
+        s_start_level = 1; s_show_ghost = true; s_show_grid = true;
+    };
+
+    // ---- Menu bar ----
+    if (ImGui::BeginMenuBar())
+    {
+        if (ImGui::BeginMenu("Game"))
+        {
+            if (ImGui::MenuItem("Reset Game"))                                     do_reset = true;
+            if (ImGui::MenuItem(paused ? "Resume" : "Pause", "P", false, !game_over)) paused = !paused;
+            if (ImGui::MenuItem("Reset Settings"))                                 reset_settings();
+            ImGui::Separator();
+            if (ImGui::MenuItem("Close") && p_open) *p_open = false;
+            ImGui::EndMenu();
+        }
+        ImGui::MenuItem("Settings", NULL, &show_settings);
+        ImGui::EndMenuBar();
+    }
+
+    // ---- Settings window (toggled from the menu bar) ----
+    if (show_settings)
+    {
+        ImGui::SetNextWindowSize(ImVec2(420.0f, 0.0f), ImGuiCond_FirstUseEver);
+        if (ImGui::Begin("Tetris Settings", &show_settings, ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            const float sw = 200.0f;
+            ImGui::SeparatorText("Drop speed");
+            ImGui::SetNextItemWidth(sw); ImGui::SliderFloat("Base drop##tet",    &s_drop_base,    0.05f,  2.00f, "%.2f s/row");
+            ImGui::SetNextItemWidth(sw); ImGui::SliderFloat("Speed factor##tet", &s_speed_factor, 0.50f,  0.99f, "x%.2f /level");
+            ImGui::SetNextItemWidth(sw); ImGui::SliderFloat("Soft drop##tet",    &s_soft_factor,  0.02f,  0.50f, "x%.2f normal");
+            ImGui::SetNextItemWidth(sw); ImGui::SliderFloat("Lock delay##tet",   &s_lock_delay,   0.00f,  1.50f, "%.2f s");
+            ImGui::SeparatorText("Input");
+            ImGui::SetNextItemWidth(sw); ImGui::SliderFloat("DAS delay##tet",    &s_das_delay,    0.05f,  0.50f, "%.2f s");
+            ImGui::SetNextItemWidth(sw); ImGui::SliderFloat("ARR rate##tet",     &s_arr_rate,     0.01f,  0.20f, "%.2f s");
+            ImGui::SeparatorText("Game");
+            ImGui::SetNextItemWidth(sw); ImGui::SliderInt  ("Start level##tet",  &s_start_level,  1, 15);
+            ImGui::Checkbox("Show ghost##tet",  &s_show_ghost); ImGui::SameLine();
+            ImGui::Checkbox("Show grid##tet",   &s_show_grid);
+            ImGui::Spacing();
+            if (ImGui::Button("Reset Game"))     do_reset = true;
+            ImGui::SameLine();
+            if (ImGui::Button("Reset Settings")) reset_settings();
+        }
+        ImGui::End();
+    }
+
+    if (!initialized || do_reset) { reset_game(); initialized = true; do_reset = false; }
+
+    float dt = ImGui::GetIO().DeltaTime;
+    if (dt > 0.05f) dt = 0.016f;
+
+    // ---- Input & game logic ----
+    if (game_over)
+    {
+        if (ImGui::IsKeyPressed(ImGuiKey_Space, false)) do_reset = true;
+    }
+    else if (waiting)
+    {
+        if (ImGui::IsKeyPressed(ImGuiKey_Space, false)) waiting = false;
+    }
+    else if (paused)
+    {
+        if (ImGui::IsKeyPressed(ImGuiKey_P, false)) paused = false;
+    }
+    else
+    {
+        if (ImGui::IsKeyPressed(ImGuiKey_P, false)) paused = true;
+
+        // Horizontal movement with DAS/ARR
+        bool left_down  = ImGui::IsKeyDown(ImGuiKey_LeftArrow)  || ImGui::IsKeyDown(ImGuiKey_A);
+        bool right_down = ImGui::IsKeyDown(ImGuiKey_RightArrow) || ImGui::IsKeyDown(ImGuiKey_D);
+        if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false) || ImGui::IsKeyPressed(ImGuiKey_A, false))
+            { try_move(-1, 0); das_left = 0.0f; arr_left = 0.0f; }
+        if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, false) || ImGui::IsKeyPressed(ImGuiKey_D, false))
+            { try_move( 1, 0); das_right = 0.0f; arr_right = 0.0f; }
+        if (left_down)
+        {
+            das_left += dt;
+            if (das_left >= s_das_delay) { arr_left += dt; while (arr_left >= s_arr_rate) { arr_left -= s_arr_rate; try_move(-1, 0); } }
+        } else { das_left = 0.0f; arr_left = 0.0f; }
+        if (right_down)
+        {
+            das_right += dt;
+            if (das_right >= s_das_delay) { arr_right += dt; while (arr_right >= s_arr_rate) { arr_right -= s_arr_rate; try_move(1, 0); } }
+        } else { das_right = 0.0f; arr_right = 0.0f; }
+
+        // Rotation
+        if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, false) || ImGui::IsKeyPressed(ImGuiKey_W, false) || ImGui::IsKeyPressed(ImGuiKey_X, false))
+            try_rotate(+1);
+        if (ImGui::IsKeyPressed(ImGuiKey_Z, false))
+            try_rotate(-1);
+
+        // Hard drop
+        if (ImGui::IsKeyPressed(ImGuiKey_Space, false))
+        {
+            int drops = 0;
+            while (try_move(0, 1)) drops++;
+            score += drops * 2;
+            lock_piece();
+        }
+        else
+        {
+            // Gravity: level-scaled interval, soft-drop multiplies it down.
+            float interval = s_drop_base * powf(s_speed_factor, (float)(level - 1));
+            bool soft = ImGui::IsKeyDown(ImGuiKey_DownArrow) || ImGui::IsKeyDown(ImGuiKey_S);
+            float effective = soft ? interval * s_soft_factor : interval;
+            drop_timer += dt;
+            while (drop_timer >= effective)
+            {
+                drop_timer -= effective;
+                if (try_move(0, 1)) { if (soft) score += 1; on_ground = false; lock_timer = 0.0f; }
+                else                { on_ground = true; break; }
+            }
+            // Lock delay once the piece is touching ground
+            if (on_ground)
+            {
+                if (collides(cur_type, cur_rot, cur_x, cur_y + 1))
+                {
+                    lock_timer += dt;
+                    if (lock_timer >= s_lock_delay) lock_piece();
+                }
+                else
+                {
+                    on_ground = false;
+                    lock_timer = 0.0f;
+                }
+            }
+        }
+    }
+
+    // ---- Rendering ----
+    ImVec2 origin = ImGui::GetCursorScreenPos();
+    ImVec2 avail  = ImGui::GetContentRegionAvail();
+    if (avail.x < 200.0f) avail.x = 200.0f;
+    if (avail.y < 200.0f) avail.y = 200.0f;
+    ImGui::InvisibleButton("##tet_canvas", avail);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->PushClipRect(origin, ImVec2(origin.x + avail.x, origin.y + avail.y), true);
+
+    // Background
+    dl->AddRectFilled(origin, ImVec2(origin.x + avail.x, origin.y + avail.y), IM_COL32(10, 10, 14, 230));
+
+    // Cell size — fit the 10×20 board plus a sidebar (about 6 cells wide) into the canvas.
+    const float side_w_cells = 6.0f;
+    float cell = avail.x / ((float)COLS + 1.0f + side_w_cells);
+    float cell_h_limit = avail.y / (float)ROWS;
+    if (cell_h_limit < cell) cell = cell_h_limit;
+    float board_w = cell * COLS;
+    float board_h = cell * ROWS;
+    float board_ox = origin.x + (avail.x - (board_w + cell + side_w_cells * cell)) * 0.5f;
+    float board_oy = origin.y + (avail.y - board_h) * 0.5f;
+
+    auto cell_rect = [&](int x, int y) -> void {
+        ImVec2 a(board_ox + x * cell + 1.0f, board_oy + y * cell + 1.0f);
+        ImVec2 b(a.x + cell - 2.0f, a.y + cell - 2.0f);
+        // outer fill plus inner highlight for a beveled look
+        dl->AddRectFilled(a, b, IM_COL32_BLACK_TRANS); // placeholder; caller overrides via wrapper
+    };
+    auto draw_cell = [&](int x, int y, ImU32 col) {
+        if (col == 0) return;
+        ImVec2 a(board_ox + x * cell + 1.0f, board_oy + y * cell + 1.0f);
+        ImVec2 b(a.x + cell - 2.0f, a.y + cell - 2.0f);
+        dl->AddRectFilled(a, b, col, 2.0f);
+        ImU32 hl = IM_COL32(255, 255, 255, 40);
+        dl->AddRect(a, b, hl, 2.0f, 0, 1.0f);
+    };
+    (void)cell_rect;
+
+    // Board background
+    dl->AddRectFilled(ImVec2(board_ox, board_oy), ImVec2(board_ox + board_w, board_oy + board_h),
+                      IM_COL32(20, 22, 28, 255));
+    // Grid
+    if (s_show_grid)
+    {
+        ImU32 g = IM_COL32(255, 255, 255, 16);
+        for (int x = 1; x < COLS; x++)
+            dl->AddLine(ImVec2(board_ox + x * cell, board_oy), ImVec2(board_ox + x * cell, board_oy + board_h), g);
+        for (int y = 1; y < ROWS; y++)
+            dl->AddLine(ImVec2(board_ox, board_oy + y * cell), ImVec2(board_ox + board_w, board_oy + y * cell), g);
+    }
+    // Settled cells
+    for (int y = 0; y < ROWS; y++)
+        for (int x = 0; x < COLS; x++)
+            if (board[y][x]) draw_cell(x, y, PCOL[board[y][x]]);
+
+    // Ghost piece (where the current piece would land)
+    if (s_show_ghost && !waiting && !game_over && !paused)
+    {
+        int gy = cur_y;
+        while (!collides(cur_type, cur_rot, cur_x, gy + 1)) gy++;
+        ImU32 c = PCOL[cur_type + 1];
+        ImU32 ghost = (c & 0x00FFFFFF) | (60u << 24);
+        for (int i = 0; i < 4; i++)
+        {
+            int cx = cur_x + P[cur_type][cur_rot][i][0];
+            int cy = gy    + P[cur_type][cur_rot][i][1];
+            if (cy >= 0 && cy < ROWS) draw_cell(cx, cy, ghost);
+        }
+    }
+    // Current piece
+    if (!game_over)
+    {
+        ImU32 c = PCOL[cur_type + 1];
+        for (int i = 0; i < 4; i++)
+        {
+            int cx = cur_x + P[cur_type][cur_rot][i][0];
+            int cy = cur_y + P[cur_type][cur_rot][i][1];
+            if (cy >= 0 && cy < ROWS) draw_cell(cx, cy, c);
+        }
+    }
+    // Board border
+    dl->AddRect(ImVec2(board_ox, board_oy), ImVec2(board_ox + board_w, board_oy + board_h),
+                IM_COL32(200, 200, 210, 200), 0.0f, 0, 1.5f);
+
+    // ---- Sidebar (NEXT + stats) ----
+    float side_x = board_ox + board_w + cell;
+    float side_y = board_oy;
+    float side_w = side_w_cells * cell;
+    ImFont* font = ImGui::GetFont();
+    float def_sz = ImGui::GetFontSize();
+    float lbl_sz = def_sz;
+    float val_sz = def_sz * 1.6f;
+
+    // NEXT preview box (4x4 cells)
+    {
+        float box = 4.0f * cell;
+        dl->AddText(font, lbl_sz, ImVec2(side_x, side_y), IM_COL32(160, 165, 175, 255), "NEXT");
+        ImVec2 pa(side_x, side_y + lbl_sz + 4.0f);
+        ImVec2 pb(pa.x + box, pa.y + box);
+        dl->AddRectFilled(pa, pb, IM_COL32(20, 22, 28, 255));
+        dl->AddRect(pa, pb, IM_COL32(120, 125, 135, 200), 0.0f, 0, 1.0f);
+        if (next_type >= 0)
+        {
+            ImU32 c = PCOL[next_type + 1];
+            for (int i = 0; i < 4; i++)
+            {
+                int px = P[next_type][0][i][0];
+                int py = P[next_type][0][i][1];
+                ImVec2 a(pa.x + px * cell + 1.0f, pa.y + py * cell + 1.0f);
+                ImVec2 b(a.x + cell - 2.0f, a.y + cell - 2.0f);
+                dl->AddRectFilled(a, b, c, 2.0f);
+                dl->AddRect(a, b, IM_COL32(255, 255, 255, 40), 2.0f, 0, 1.0f);
+            }
+        }
+        side_y += lbl_sz + 4.0f + box + cell * 0.5f;
+    }
+
+    auto draw_stat = [&](const char* label, int value) {
+        char buf[32];
+        snprintf(buf, sizeof(buf), "%d", value);
+        dl->AddText(font, lbl_sz, ImVec2(side_x, side_y), IM_COL32(160, 165, 175, 255), label);
+        side_y += lbl_sz + 2.0f;
+        dl->AddText(font, val_sz, ImVec2(side_x, side_y), IM_COL32(235, 235, 240, 255), buf);
+        side_y += val_sz + cell * 0.3f;
+    };
+    draw_stat("SCORE", score);
+    draw_stat("LEVEL", level);
+    draw_stat("LINES", lines);
+
+    (void)side_w;
+
+    // Overlay text
+    auto centered_text = [&](const char* msg, float yoff, ImU32 col) {
+        ImVec2 ts = ImGui::CalcTextSize(msg);
+        float cx = board_ox + board_w * 0.5f;
+        float cy = board_oy + board_h * 0.5f + yoff;
+        dl->AddText(ImVec2(cx - ts.x * 0.5f, cy - ts.y * 0.5f), col, msg);
+    };
+    if (waiting && !game_over)
+    {
+        centered_text("Press SPACE to Start",            -10.0f, IM_COL32(255, 255, 255, 230));
+        centered_text("[A]/[D] move  [W] rotate  [Z] CCW", 10.0f, IM_COL32(170, 170, 180, 200));
+        centered_text("[S] soft drop  [Space] hard drop", 26.0f, IM_COL32(170, 170, 180, 200));
+    }
+    if (paused && !game_over)
+    {
+        centered_text("PAUSED",                      -8.0f, IM_COL32(255, 255, 255, 230));
+        centered_text("Press P to resume",           12.0f, IM_COL32(170, 170, 180, 200));
+    }
+    if (game_over)
+    {
+        centered_text("GAME OVER",                   -8.0f, IM_COL32(255, 90, 90, 240));
+        centered_text("Press SPACE to restart",      12.0f, IM_COL32(200, 200, 210, 220));
     }
 
     dl->PopClipRect();
