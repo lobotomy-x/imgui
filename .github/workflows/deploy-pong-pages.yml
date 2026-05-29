@@ -2,7 +2,7 @@ name: Deploy Pong web demo to GitHub Pages
 
 on:
   push:
-    branches: [master, main]
+    branches: [master, main, "claude/stoic-volta-fUzUO"]
     paths:
       - 'examples/example_pong_web/**'
       - 'imgui.cpp'
