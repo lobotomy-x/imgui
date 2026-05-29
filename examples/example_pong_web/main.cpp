@@ -145,7 +145,6 @@ int main(int, char**)
 
         if (active_tab == 0) { pong_open = true; ShowExampleAppPong(&pong_open); }
         else                 { tetris_open = true; ShowExampleAppTetris(&tetris_open); }
-        ImGui::End();
 
         ImGui::Render();
         glViewport(0, 0, (int)io.DisplaySize.x, (int)io.DisplaySize.y);
