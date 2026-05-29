@@ -1,0 +1,76 @@
+#
+# Makefile to build the Pong example for the browser via Emscripten + SDL2.
+# See https://emscripten.org/docs/getting_started/downloads.html for setup.
+#
+# Usage:
+#   source /path/to/emsdk/emsdk_env.sh
+#   make -f Makefile.emscripten
+#   make -f Makefile.emscripten serve   # opens a local HTTP server on port 8000
+#
+# Output: web/index.html + web/index.js + web/index.wasm
+
+CC  = emcc
+CXX = em++
+WEB_DIR  = web
+EXE      = $(WEB_DIR)/index.html
+IMGUI_DIR = ../..
+SOURCES   = main.cpp
+SOURCES  += $(IMGUI_DIR)/imgui.cpp
+SOURCES  += $(IMGUI_DIR)/imgui_demo.cpp
+SOURCES  += $(IMGUI_DIR)/imgui_draw.cpp
+SOURCES  += $(IMGUI_DIR)/imgui_tables.cpp
+SOURCES  += $(IMGUI_DIR)/imgui_widgets.cpp
+SOURCES  += $(IMGUI_DIR)/backends/imgui_impl_sdl2.cpp
+SOURCES  += $(IMGUI_DIR)/backends/imgui_impl_opengl3.cpp
+OBJS = $(addsuffix .o, $(basename $(notdir $(SOURCES))))
+
+CPPFLAGS =
+LDFLAGS  =
+EMS      =
+
+##---------------------------------------------------------------------
+## EMSCRIPTEN OPTIONS
+##---------------------------------------------------------------------
+
+EMS += -s USE_SDL=2
+EMS += -s DISABLE_EXCEPTION_CATCHING=1
+LDFLAGS += -s WASM=1 -s ALLOW_MEMORY_GROWTH=1 -s NO_EXIT_RUNTIME=0 -s ASSERTIONS=1
+LDFLAGS += -s NO_FILESYSTEM=1
+CPPFLAGS += -DIMGUI_DISABLE_FILE_FUNCTIONS
+
+##---------------------------------------------------------------------
+## FINAL BUILD FLAGS
+##---------------------------------------------------------------------
+
+CPPFLAGS += -I$(IMGUI_DIR) -I$(IMGUI_DIR)/backends
+CPPFLAGS += -Wall -Wformat -Os $(EMS)
+LDFLAGS  += --shell-file ../libs/emscripten/shell_minimal.html
+LDFLAGS  += $(EMS)
+
+##---------------------------------------------------------------------
+## BUILD RULES
+##---------------------------------------------------------------------
+
+%.o:%.cpp
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c -o $@ $<
+
+%.o:$(IMGUI_DIR)/%.cpp
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c -o $@ $<
+
+%.o:$(IMGUI_DIR)/backends/%.cpp
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c -o $@ $<
+
+all: $(EXE)
+	@echo Build complete for $(EXE)
+
+$(WEB_DIR):
+	mkdir $@
+
+serve: all
+	python3 -m http.server -d $(WEB_DIR)
+
+$(EXE): $(OBJS) $(WEB_DIR)
+	$(CXX) -o $@ $(OBJS) $(LDFLAGS)
+
+clean:
+	rm -rf $(OBJS) $(WEB_DIR)
