@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en-us">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no"/>
+    <title>Pong on Dear ImGui (WebAssembly)</title>
+    <style>
+        body { margin: 0; background-color: #000; color: #ddd; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+        .emscripten {
+            position: absolute;
+            top: 0; left: 0;
+            margin: 0; border: 0;
+            width: 100%; height: 100%;
+            overflow: hidden;
+            display: block;
+            image-rendering: pixelated;
+            -ms-interpolation-mode: nearest-neighbor;
+        }
+        #about {
+            position: fixed;
+            right: 16px;
+            bottom: 16px;
+            max-width: 340px;
+            padding: 14px 16px;
+            background: rgba(20, 20, 20, 0.88);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 8px;
+            font-size: 13px;
+            line-height: 1.5;
+            z-index: 10;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(6px);
+        }
+        #about h1 { margin: 0 0 8px; font-size: 14px; color: #fff; font-weight: 600; letter-spacing: 0.2px; }
+        #about p { margin: 0 0 8px; }
+        #about p:last-child { margin-bottom: 0; }
+        #about a { color: #6cb6ff; text-decoration: none; }
+        #about a:hover { text-decoration: underline; }
+        #about kbd {
+            background: #2a2a2a;
+            border: 1px solid #444;
+            padding: 1px 6px;
+            border-radius: 4px;
+            font: 12px ui-monospace, "SF Mono", Consolas, monospace;
+            color: #eee;
+        }
+        #about-close {
+            float: right;
+            background: none;
+            border: 0;
+            color: #888;
+            font-size: 18px;
+            line-height: 1;
+            cursor: pointer;
+            margin: -6px -6px 0 8px;
+            padding: 4px 8px;
+        }
+        #about-close:hover { color: #fff; }
+    </style>
+  </head>
+  <body>
+    <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()"></canvas>
+    <div id="about">
+        <button id="about-close" type="button" aria-label="close">&times;</button>
+        <h1>Pong on Dear ImGui</h1>
+        <p>The classic game running inside <a href="https://github.com/ocornut/imgui" target="_blank" rel="noopener">Dear ImGui</a> &mdash; an immediate-mode GUI library &mdash; compiled to WebAssembly via Emscripten. Paddles, ball, scores, and the Settings window all flow through ImGui&rsquo;s draw API into WebGL.</p>
+        <p>Press <kbd>SPACE</kbd>, move with <kbd>W</kbd>/<kbd>S</kbd> or <kbd>&uarr;</kbd>/<kbd>&darr;</kbd>. Tweak the AI from the <em>Settings</em> menu.</p>
+        <p><a href="https://github.com/lobotomy-x/imgui/tree/claude/stoic-volta-fUzUO/examples/example_pong_web" target="_blank" rel="noopener">Source on GitHub &rarr;</a></p>
+    </div>
+    <script>
+      document.getElementById('about-close').addEventListener('click', function () {
+        document.getElementById('about').style.display = 'none';
+      });
+      var Module = {
+        preRun: [],
+        postRun: [],
+        print: function () {
+          var text = Array.prototype.slice.call(arguments).join(' ');
+          console.log(text);
+        },
+        printErr: function () {
+          var text = Array.prototype.slice.call(arguments).join(' ');
+          console.error(text);
+        },
+        canvas: document.getElementById('canvas'),
+        setStatus: function (text) { console.log("status: " + text); },
+        monitorRunDependencies: function () {}
+      };
+      window.onerror = function () { console.log("onerror: " + event); };
+    </script>
+    {{{ SCRIPT }}}
+  </body>
+</html>

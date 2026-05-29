@@ -44,7 +44,7 @@ CPPFLAGS += -DIMGUI_DISABLE_FILE_FUNCTIONS
 
 CPPFLAGS += -I$(IMGUI_DIR) -I$(IMGUI_DIR)/backends
 CPPFLAGS += -Wall -Wformat -Os $(EMS)
-LDFLAGS  += --shell-file ../libs/emscripten/shell_minimal.html
+LDFLAGS  += --shell-file shell.html
 LDFLAGS  += $(EMS)
 
 ##---------------------------------------------------------------------

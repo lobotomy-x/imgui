@@ -51,7 +51,7 @@ jobs:
             -s NO_EXIT_RUNTIME=0 \
             -s ASSERTIONS=1 \
             -s NO_FILESYSTEM=1 \
-            --shell-file ../libs/emscripten/shell_minimal.html \
+            --shell-file shell.html \
             main.cpp \
             ../../imgui.cpp ../../imgui_demo.cpp ../../imgui_draw.cpp \
             ../../imgui_tables.cpp ../../imgui_widgets.cpp \
