@@ -31,8 +31,15 @@ int main(int, char**)
         return -1;
     }
 
-    // GL ES 3.0 + GLSL 300 es (WebGL 2.0) on Emscripten, GL 3.0 elsewhere
-#if defined(IMGUI_IMPL_OPENGL_ES3) || defined(__EMSCRIPTEN__)
+    // Match the canonical example_sdl2_opengl3 attribute ladder so SDL2's emscripten port
+    // hands us a context the auto-detected ES2 backend can use (otherwise EGL_BAD_CONFIG).
+#if defined(IMGUI_IMPL_OPENGL_ES2)
+    const char* glsl_version = "#version 100";
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, 0);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+#elif defined(IMGUI_IMPL_OPENGL_ES3)
     const char* glsl_version = "#version 300 es";
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, 0);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
@@ -57,8 +64,8 @@ int main(int, char**)
 #endif
 
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
-    SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
+    // No depth/stencil — Pong is 2D. Asking for DEPTH_SIZE=24 + STENCIL_SIZE=8 makes SDL2's
+    // emscripten EGL config matcher fail with EGL_BAD_CONFIG on some browsers/toolchains.
     SDL_WindowFlags window_flags = (SDL_WindowFlags)(SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
     SDL_Window* window = SDL_CreateWindow("Pong", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 900, 620, window_flags);
     if (window == nullptr)

@@ -1,0 +1,73 @@
+name: Deploy Pong web demo to GitHub Pages
+
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - 'examples/example_pong_web/**'
+      - 'imgui.cpp'
+      - 'imgui_demo.cpp'
+      - 'imgui_draw.cpp'
+      - 'imgui_tables.cpp'
+      - 'imgui_widgets.cpp'
+      - 'imgui*.h'
+      - 'backends/imgui_impl_sdl2.*'
+      - 'backends/imgui_impl_opengl3.*'
+      - '.github/workflows/deploy-pong-pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 5.0.7
+          actions-cache-folder: emsdk-cache
+
+      - name: Build Pong web
+        working-directory: examples/example_pong_web
+        run: |
+          mkdir -p web
+          em++ \
+            -DIMGUI_DISABLE_FILE_FUNCTIONS \
+            -I../.. -I../../backends \
+            -Wall -Wformat -Os \
+            -s USE_SDL=2 \
+            -s DISABLE_EXCEPTION_CATCHING=1 \
+            -s WASM=1 \
+            -s ALLOW_MEMORY_GROWTH=1 \
+            -s NO_EXIT_RUNTIME=0 \
+            -s ASSERTIONS=1 \
+            -s NO_FILESYSTEM=1 \
+            --shell-file ../libs/emscripten/shell_minimal.html \
+            main.cpp \
+            ../../imgui.cpp ../../imgui_demo.cpp ../../imgui_draw.cpp \
+            ../../imgui_tables.cpp ../../imgui_widgets.cpp \
+            ../../backends/imgui_impl_sdl2.cpp ../../backends/imgui_impl_opengl3.cpp \
+            -o web/index.html
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: examples/example_pong_web/web
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
