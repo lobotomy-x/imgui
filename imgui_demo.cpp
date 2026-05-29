@@ -11029,9 +11029,10 @@ void ShowExampleAppPong(bool* p_open)
         float spd = sqrtf(vel_x * vel_x + vel_y * vel_y);
         if (spd > s_ball_maxspd) { vel_x = vel_x / spd * s_ball_maxspd; vel_y = vel_y / spd * s_ball_maxspd; }
 
-        // Scoring
-        if (ball_x <= 0.0f) { score[1]++; reset_round(); }
-        if (ball_x >= LW) { score[0]++; reset_round(); }
+        // Scoring — wait until the ball is fully past the wall, not just when the
+        // center crosses. Gives the paddle a bit more grace and reads better visually.
+        if (ball_x + s_ball_r <= 0.0f) { score[1]++; reset_round(); }
+        if (ball_x - s_ball_r >= LW)   { score[0]++; reset_round(); }
 
         // Enemy AI — prediction is computed ONCE when the ball starts moving toward the enemy,
         // NOT recalculated every frame (old behavior caused per-frame jitter). The closed-form
