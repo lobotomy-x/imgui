@@ -10865,6 +10865,7 @@ void ShowExampleAppPong(bool* p_open)
     static float s_boost_emy = 1.075f;
     static float s_ai_prec = 0.75f;    // 0=chaotic, 1=perfect
     static float s_ai_err = 45.0f;    // max one-time error in logical pixels
+    static bool  s_touch  = true;     // show on-screen UP/DOWN buttons (default on for mobile)
 
     // ---- Game state (persisted across frames via static locals) ----
     static float player_y = LH * 0.5f - 36.0f;
@@ -10890,6 +10891,7 @@ void ShowExampleAppPong(bool* p_open)
             s_ball_speed = 260.0f; s_ball_maxspd = 780.0f;
             s_boost_plr = 1.10f; s_boost_emy = 1.075f;
             s_ai_prec = 0.75f; s_ai_err = 45.0f;
+            s_touch = true;
         };
 
     // ---- Menu bar ----
@@ -10937,6 +10939,8 @@ void ShowExampleAppPong(bool* p_open)
             ImGui::EndGroup();
 
             ImGui::Spacing();
+            ImGui::Checkbox("Show touch controls##pong", &s_touch);
+            ImGui::Spacing();
             if (ImGui::Button("Reset Game"))     do_reset = true;
             ImGui::SameLine();
             if (ImGui::Button("Reset Settings")) reset_settings();
@@ -10949,8 +10953,10 @@ void ShowExampleAppPong(bool* p_open)
     ImVec2 avail = ImGui::GetContentRegionAvail();
     if (avail.x < 200.0f) avail.x = 200.0f;
     if (avail.y < 100.0f) avail.y = 100.0f;
+    // Reserve a strip at the bottom for touch buttons when enabled.
+    const float touch_h = s_touch ? ((avail.y * 0.12f > 64.0f) ? avail.y * 0.12f : 64.0f) : 0.0f;
     const float W = avail.x;
-    const float H = avail.y;
+    const float H = avail.y - touch_h;
     const float sx = W / LW;
     const float sy = H / LH;
 
@@ -10982,19 +10988,50 @@ void ShowExampleAppPong(bool* p_open)
     if (dt > 0.05f) dt = 0.016f;
 
     // -------------------------------------------------------------------------
+    // Touch button hit-test (manual, against the bottom strip we reserved)
+    // -------------------------------------------------------------------------
+    ImGuiIO& io = ImGui::GetIO();
+    bool mouse_down    = io.MouseDown[0];
+    bool mouse_clicked = io.MouseClicked[0];
+    auto rect_hit = [&](ImVec2 a, ImVec2 b) -> bool
+    {
+        return io.MousePos.x >= a.x && io.MousePos.x <= b.x && io.MousePos.y >= a.y && io.MousePos.y <= b.y;
+    };
+    ImVec2 up_a, up_b, dn_a, dn_b;
+    bool touch_up_held = false, touch_dn_held = false, touch_canvas_tap = false;
+    if (s_touch)
+    {
+        float pad = 6.0f;
+        float bw  = (W - pad * 3.0f) * 0.5f;
+        float by0 = origin.y + H + pad;
+        float by1 = origin.y + H + touch_h - pad;
+        up_a = ImVec2(origin.x + pad,        by0);
+        up_b = ImVec2(origin.x + pad + bw,   by1);
+        dn_a = ImVec2(origin.x + pad * 2 + bw, by0);
+        dn_b = ImVec2(origin.x + pad * 2 + bw * 2, by1);
+        touch_up_held = mouse_down && rect_hit(up_a, up_b);
+        touch_dn_held = mouse_down && rect_hit(dn_a, dn_b);
+    }
+    {
+        ImVec2 canvas_a = origin;
+        ImVec2 canvas_b = ImVec2(origin.x + W, origin.y + H);
+        touch_canvas_tap = mouse_clicked && rect_hit(canvas_a, canvas_b);
+    }
+
+    // -------------------------------------------------------------------------
     // Input & game logic
     // -------------------------------------------------------------------------
     if (waiting)
     {
-        if (ImGui::IsKeyPressed(ImGuiKey_Space, false))
+        if (ImGui::IsKeyPressed(ImGuiKey_Space, false) || touch_canvas_tap)
             waiting = false;
     }
     else
     {
-        // Player movement — W/S or arrow keys
-        if (ImGui::IsKeyDown(ImGuiKey_W) || ImGui::IsKeyDown(ImGuiKey_UpArrow))
+        // Player movement — W/S, arrow keys, or on-screen UP/DOWN buttons
+        if (ImGui::IsKeyDown(ImGuiKey_W) || ImGui::IsKeyDown(ImGuiKey_UpArrow) || touch_up_held)
             player_y -= s_plr_speed * dt;
-        if (ImGui::IsKeyDown(ImGuiKey_S) || ImGui::IsKeyDown(ImGuiKey_DownArrow))
+        if (ImGui::IsKeyDown(ImGuiKey_S) || ImGui::IsKeyDown(ImGuiKey_DownArrow) || touch_dn_held)
             player_y += s_plr_speed * dt;
         player_y = IM_CLAMP(player_y, 0.0f, LH - s_paddle_h);
 
@@ -11107,7 +11144,8 @@ void ShowExampleAppPong(bool* p_open)
     // -------------------------------------------------------------------------
     ImGui::InvisibleButton("##pong_canvas", avail);
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    dl->PushClipRect(origin, ImVec2(origin.x + W, origin.y + H), true);
+    // Clip to the full available region (canvas + touch bar) so the buttons are visible too.
+    dl->PushClipRect(origin, ImVec2(origin.x + W, origin.y + H + touch_h), true);
 
     // Background
     dl->AddRectFilled(origin, ImVec2(origin.x + W, origin.y + H), IM_COL32(10, 10, 10, 210));
@@ -11148,14 +11186,35 @@ void ShowExampleAppPong(bool* p_open)
     // Waiting / start overlay
     if (waiting)
     {
-        const char* msg = (score[0] == 0 && score[1] == 0) ? "Press SPACE to Start" : "Press SPACE to Continue";
-        const char* hint = "[W]/[S]  or  [Up]/[Down]  to move";
+        bool fresh = (score[0] == 0 && score[1] == 0);
+        const char* msg  = s_touch ? (fresh ? "Tap to Start" : "Tap to Continue")
+                                   : (fresh ? "Press SPACE to Start" : "Press SPACE to Continue");
+        const char* hint = s_touch ? "Use the buttons below to move"
+                                   : "[W]/[S]  or  [Up]/[Down]  to move";
         ImVec2 msg_sz = ImGui::CalcTextSize(msg);
         ImVec2 hint_sz = ImGui::CalcTextSize(hint);
         float  cx = origin.x + LW * 0.5f * sx;
         float  cy = origin.y + LH * 0.5f * sy;
         dl->AddText(ImVec2(cx - msg_sz.x * 0.5f, cy - msg_sz.y * 1.2f), IM_COL32(255, 255, 255, 220), msg);
         dl->AddText(ImVec2(cx - hint_sz.x * 0.5f, cy + hint_sz.y * 0.2f), IM_COL32(160, 160, 160, 180), hint);
+    }
+
+    // Touch button strip
+    if (s_touch)
+    {
+        auto draw_btn = [&](ImVec2 a, ImVec2 b, const char* lbl, bool held)
+        {
+            ImU32 fill   = held ? IM_COL32( 90,  95, 130, 230) : IM_COL32( 38,  40,  52, 210);
+            ImU32 border = held ? IM_COL32(200, 200, 220, 230) : IM_COL32(140, 145, 160, 200);
+            dl->AddRectFilled(a, b, fill, 8.0f);
+            dl->AddRect(a, b, border, 8.0f, 0, 1.5f);
+            ImVec2 ts = ImGui::CalcTextSize(lbl);
+            float tcx = (a.x + b.x) * 0.5f - ts.x * 0.5f;
+            float tcy = (a.y + b.y) * 0.5f - ts.y * 0.5f;
+            dl->AddText(ImVec2(tcx, tcy), IM_COL32(240, 240, 245, 240), lbl);
+        };
+        draw_btn(up_a, up_b, "UP",   touch_up_held);
+        draw_btn(dn_a, dn_b, "DOWN", touch_dn_held);
     }
 
     dl->PopClipRect();
@@ -11196,6 +11255,7 @@ void ShowExampleAppTetris(bool* p_open)
     static int   s_start_level  = 1;
     static bool  s_show_ghost   = true;
     static bool  s_show_grid    = true;
+    static bool  s_touch        = true;     // on-screen buttons (default on for mobile)
 
     // ---- Piece data: 7 tetrominoes × 4 rotations × 4 cells of (x, y) in a 4x4 bounding box ----
     // Color indices: 1=I 2=O 3=T 4=S 5=Z 6=L 7=J
@@ -11350,7 +11410,7 @@ void ShowExampleAppTetris(bool* p_open)
     auto reset_settings = [&]() {
         s_drop_base = 0.80f; s_speed_factor = 0.85f; s_soft_factor = 0.08f;
         s_lock_delay = 0.50f; s_das_delay = 0.17f; s_arr_rate = 0.05f;
-        s_start_level = 1; s_show_ghost = true; s_show_grid = true;
+        s_start_level = 1; s_show_ghost = true; s_show_grid = true; s_touch = true;
     };
 
     // ---- Menu bar ----
@@ -11388,6 +11448,7 @@ void ShowExampleAppTetris(bool* p_open)
             ImGui::SetNextItemWidth(sw); ImGui::SliderInt  ("Start level##tet",  &s_start_level,  1, 15);
             ImGui::Checkbox("Show ghost##tet",  &s_show_ghost); ImGui::SameLine();
             ImGui::Checkbox("Show grid##tet",   &s_show_grid);
+            ImGui::Checkbox("Show touch controls##tet", &s_touch);
             ImGui::Spacing();
             if (ImGui::Button("Reset Game"))     do_reset = true;
             ImGui::SameLine();
@@ -11401,14 +11462,61 @@ void ShowExampleAppTetris(bool* p_open)
     float dt = ImGui::GetIO().DeltaTime;
     if (dt > 0.05f) dt = 0.016f;
 
+    // ---- Touch button hit-test (manual, against a bottom strip) ----
+    ImVec2 t_origin = ImGui::GetCursorScreenPos();
+    ImVec2 t_avail  = ImGui::GetContentRegionAvail();
+    if (t_avail.x < 200.0f) t_avail.x = 200.0f;
+    if (t_avail.y < 200.0f) t_avail.y = 200.0f;
+    const float t_touch_h = s_touch ? ((t_avail.y * 0.10f > 64.0f) ? t_avail.y * 0.10f : 64.0f) : 0.0f;
+    const float t_canvas_h = t_avail.y - t_touch_h;
+    ImGuiIO& tio = ImGui::GetIO();
+    bool t_mouse_down    = tio.MouseDown[0];
+    bool t_mouse_clicked = tio.MouseClicked[0];
+    auto t_rect_hit = [&](ImVec2 a, ImVec2 b) -> bool
+    {
+        return tio.MousePos.x >= a.x && tio.MousePos.x <= b.x && tio.MousePos.y >= a.y && tio.MousePos.y <= b.y;
+    };
+    ImVec2 tb_a[5], tb_b[5]; // LEFT, ROT, RIGHT, SOFT, HARD
+    const char* tb_labels[5] = { "<", "ROT", ">", "v", "vv" };
+    bool tb_held[5] = { false, false, false, false, false };
+    static bool tb_prev[5] = { false, false, false, false, false };
+    if (s_touch)
+    {
+        float pad = 6.0f;
+        float bw  = (t_avail.x - pad * 6.0f) / 5.0f;
+        float by0 = t_origin.y + t_canvas_h + pad;
+        float by1 = t_origin.y + t_avail.y - pad;
+        for (int i = 0; i < 5; i++)
+        {
+            tb_a[i] = ImVec2(t_origin.x + pad + i * (bw + pad), by0);
+            tb_b[i] = ImVec2(tb_a[i].x + bw, by1);
+            tb_held[i] = t_mouse_down && t_rect_hit(tb_a[i], tb_b[i]);
+        }
+    }
+    bool t_canvas_tap = false;
+    {
+        ImVec2 ca = t_origin;
+        ImVec2 cb = ImVec2(t_origin.x + t_avail.x, t_origin.y + t_canvas_h);
+        t_canvas_tap = t_mouse_clicked && t_rect_hit(ca, cb);
+    }
+    // Edge detection for one-shot actions
+    bool touch_left_press   = tb_held[0] && !tb_prev[0];
+    bool touch_right_press  = tb_held[2] && !tb_prev[2];
+    bool touch_rotate_press = tb_held[1] && !tb_prev[1];
+    bool touch_hard_press   = tb_held[4] && !tb_prev[4];
+    bool touch_left_held    = tb_held[0];
+    bool touch_right_held   = tb_held[2];
+    bool touch_soft_held    = tb_held[3];
+    for (int i = 0; i < 5; i++) tb_prev[i] = tb_held[i];
+
     // ---- Input & game logic ----
     if (game_over)
     {
-        if (ImGui::IsKeyPressed(ImGuiKey_Space, false)) do_reset = true;
+        if (ImGui::IsKeyPressed(ImGuiKey_Space, false) || t_canvas_tap) do_reset = true;
     }
     else if (waiting)
     {
-        if (ImGui::IsKeyPressed(ImGuiKey_Space, false)) waiting = false;
+        if (ImGui::IsKeyPressed(ImGuiKey_Space, false) || t_canvas_tap) waiting = false;
     }
     else if (paused)
     {
@@ -11418,12 +11526,12 @@ void ShowExampleAppTetris(bool* p_open)
     {
         if (ImGui::IsKeyPressed(ImGuiKey_P, false)) paused = true;
 
-        // Horizontal movement with DAS/ARR
-        bool left_down  = ImGui::IsKeyDown(ImGuiKey_LeftArrow)  || ImGui::IsKeyDown(ImGuiKey_A);
-        bool right_down = ImGui::IsKeyDown(ImGuiKey_RightArrow) || ImGui::IsKeyDown(ImGuiKey_D);
-        if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false) || ImGui::IsKeyPressed(ImGuiKey_A, false))
+        // Horizontal movement with DAS/ARR (keyboard or on-screen LEFT/RIGHT buttons)
+        bool left_down  = ImGui::IsKeyDown(ImGuiKey_LeftArrow)  || ImGui::IsKeyDown(ImGuiKey_A) || touch_left_held;
+        bool right_down = ImGui::IsKeyDown(ImGuiKey_RightArrow) || ImGui::IsKeyDown(ImGuiKey_D) || touch_right_held;
+        if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false) || ImGui::IsKeyPressed(ImGuiKey_A, false) || touch_left_press)
             { try_move(-1, 0); das_left = 0.0f; arr_left = 0.0f; }
-        if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, false) || ImGui::IsKeyPressed(ImGuiKey_D, false))
+        if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, false) || ImGui::IsKeyPressed(ImGuiKey_D, false) || touch_right_press)
             { try_move( 1, 0); das_right = 0.0f; arr_right = 0.0f; }
         if (left_down)
         {
@@ -11437,13 +11545,13 @@ void ShowExampleAppTetris(bool* p_open)
         } else { das_right = 0.0f; arr_right = 0.0f; }
 
         // Rotation
-        if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, false) || ImGui::IsKeyPressed(ImGuiKey_W, false) || ImGui::IsKeyPressed(ImGuiKey_X, false))
+        if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, false) || ImGui::IsKeyPressed(ImGuiKey_W, false) || ImGui::IsKeyPressed(ImGuiKey_X, false) || touch_rotate_press)
             try_rotate(+1);
         if (ImGui::IsKeyPressed(ImGuiKey_Z, false))
             try_rotate(-1);
 
         // Hard drop
-        if (ImGui::IsKeyPressed(ImGuiKey_Space, false))
+        if (ImGui::IsKeyPressed(ImGuiKey_Space, false) || touch_hard_press)
         {
             int drops = 0;
             while (try_move(0, 1)) drops++;
@@ -11454,7 +11562,7 @@ void ShowExampleAppTetris(bool* p_open)
         {
             // Gravity: level-scaled interval, soft-drop multiplies it down.
             float interval = s_drop_base * powf(s_speed_factor, (float)(level - 1));
-            bool soft = ImGui::IsKeyDown(ImGuiKey_DownArrow) || ImGui::IsKeyDown(ImGuiKey_S);
+            bool soft = ImGui::IsKeyDown(ImGuiKey_DownArrow) || ImGui::IsKeyDown(ImGuiKey_S) || touch_soft_held;
             float effective = soft ? interval * s_soft_factor : interval;
             drop_timer += dt;
             while (drop_timer >= effective)
@@ -11481,15 +11589,13 @@ void ShowExampleAppTetris(bool* p_open)
     }
 
     // ---- Rendering ----
-    ImVec2 origin = ImGui::GetCursorScreenPos();
-    ImVec2 avail  = ImGui::GetContentRegionAvail();
-    if (avail.x < 200.0f) avail.x = 200.0f;
-    if (avail.y < 200.0f) avail.y = 200.0f;
-    ImGui::InvisibleButton("##tet_canvas", avail);
+    ImVec2 origin = t_origin;
+    ImVec2 avail  = ImVec2(t_avail.x, t_canvas_h); // play area only; touch strip lives below
+    ImGui::InvisibleButton("##tet_canvas", t_avail); // consume the full region so layout advances past the touch bar
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    dl->PushClipRect(origin, ImVec2(origin.x + avail.x, origin.y + avail.y), true);
+    dl->PushClipRect(t_origin, ImVec2(t_origin.x + t_avail.x, t_origin.y + t_avail.y), true);
 
-    // Background
+    // Background covers the canvas only — touch buttons render themselves over the strip below.
     dl->AddRectFilled(origin, ImVec2(origin.x + avail.x, origin.y + avail.y), IM_COL32(10, 10, 14, 230));
 
     // Cell size — fit the 10×20 board plus a sidebar (about 6 cells wide) into the canvas.
@@ -11620,9 +11726,12 @@ void ShowExampleAppTetris(bool* p_open)
     };
     if (waiting && !game_over)
     {
-        centered_text("Press SPACE to Start",            -10.0f, IM_COL32(255, 255, 255, 230));
-        centered_text("[A]/[D] move  [W] rotate  [Z] CCW", 10.0f, IM_COL32(170, 170, 180, 200));
-        centered_text("[S] soft drop  [Space] hard drop", 26.0f, IM_COL32(170, 170, 180, 200));
+        const char* start_msg = s_touch ? "Tap the board to Start" : "Press SPACE to Start";
+        const char* hint1 = s_touch ? "Use the buttons below" : "[A]/[D] move  [W] rotate  [Z] CCW";
+        const char* hint2 = s_touch ? "ROT spins, vv hard-drops" : "[S] soft drop  [Space] hard drop";
+        centered_text(start_msg, -10.0f, IM_COL32(255, 255, 255, 230));
+        centered_text(hint1,      10.0f, IM_COL32(170, 170, 180, 200));
+        centered_text(hint2,      26.0f, IM_COL32(170, 170, 180, 200));
     }
     if (paused && !game_over)
     {
@@ -11632,7 +11741,25 @@ void ShowExampleAppTetris(bool* p_open)
     if (game_over)
     {
         centered_text("GAME OVER",                   -8.0f, IM_COL32(255, 90, 90, 240));
-        centered_text("Press SPACE to restart",      12.0f, IM_COL32(200, 200, 210, 220));
+        const char* over_hint = s_touch ? "Tap the board to restart" : "Press SPACE to restart";
+        centered_text(over_hint,                     12.0f, IM_COL32(200, 200, 210, 220));
+    }
+
+    // Touch button strip
+    if (s_touch)
+    {
+        auto t_btn = [&](ImVec2 a, ImVec2 b, const char* lbl, bool held)
+        {
+            ImU32 fill   = held ? IM_COL32( 90,  95, 130, 230) : IM_COL32( 38,  40,  52, 210);
+            ImU32 border = held ? IM_COL32(200, 200, 220, 230) : IM_COL32(140, 145, 160, 200);
+            dl->AddRectFilled(a, b, fill, 8.0f);
+            dl->AddRect(a, b, border, 8.0f, 0, 1.5f);
+            ImVec2 ts = ImGui::CalcTextSize(lbl);
+            float tcx = (a.x + b.x) * 0.5f - ts.x * 0.5f;
+            float tcy = (a.y + b.y) * 0.5f - ts.y * 0.5f;
+            dl->AddText(ImVec2(tcx, tcy), IM_COL32(240, 240, 245, 240), lbl);
+        };
+        for (int i = 0; i < 5; i++) t_btn(tb_a[i], tb_b[i], tb_labels[i], tb_held[i]);
     }
 
     dl->PopClipRect();

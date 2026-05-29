@@ -125,16 +125,26 @@ int main(int, char**)
         ImGui_ImplSDL2_NewFrame();
         ImGui::NewFrame();
 
-        if (pong_open)   ShowExampleAppPong(&pong_open);
-        if (tetris_open) ShowExampleAppTetris(&tetris_open);
-        // Tiny launcher so closed games can be reopened.
-        ImGui::SetNextWindowSize(ImVec2(160.0f, 0.0f), ImGuiCond_FirstUseEver);
-        ImGui::SetNextWindowPos(ImVec2(8.0f, 8.0f), ImGuiCond_FirstUseEver);
-        if (ImGui::Begin("Mini-games", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        // Tab strip pinned to the top — selecting a tab decides which game gets called this frame
+        // so only the active one reads input. (Without this, both Pong and Tetris would react to
+        // the same SPACE press at the same time.)
+        static int active_tab = 0;
+        ImGui::SetNextWindowPos(ImVec2(0, 0));
+        ImGui::SetNextWindowSize(ImVec2(io.DisplaySize.x, 0.0f));
+        ImGui::Begin("##games_tabs", nullptr,
+                     ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+                     ImGuiWindowFlags_NoMove     | ImGuiWindowFlags_NoScrollbar |
+                     ImGuiWindowFlags_AlwaysAutoResize);
+        if (ImGui::BeginTabBar("##games"))
         {
-            ImGui::Checkbox("Pong",   &pong_open);
-            ImGui::Checkbox("Tetris", &tetris_open);
+            if (ImGui::BeginTabItem("Pong"))   { active_tab = 0; ImGui::EndTabItem(); }
+            if (ImGui::BeginTabItem("Tetris")) { active_tab = 1; ImGui::EndTabItem(); }
+            ImGui::EndTabBar();
         }
+        ImGui::End();
+
+        if (active_tab == 0) { pong_open = true; ShowExampleAppPong(&pong_open); }
+        else                 { tetris_open = true; ShowExampleAppTetris(&tetris_open); }
         ImGui::End();
 
         ImGui::Render();
