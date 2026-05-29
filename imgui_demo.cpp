@@ -254,8 +254,8 @@ static void ShowExampleAppConstrainedResize(bool* p_open);
 static void ShowExampleAppFullscreen(bool* p_open);
 static void ShowExampleAppLongText(bool* p_open);
 static void ShowExampleAppWindowTitles(bool* p_open);
-void ShowExampleAppPong(bool* p_open);    // non-static so example_pong_web can call it directly
-void ShowExampleAppTetris(bool* p_open);  // non-static for the same reason
+void ShowExampleAppPong(bool* p_open, bool fill_viewport = false);    // non-static so example_pong_web can call it directly
+void ShowExampleAppTetris(bool* p_open, bool fill_viewport = false);  // non-static for the same reason
 static void ShowExampleMenuFile();
 
 // We split the contents of the big ShowDemoWindow() function into smaller functions
@@ -10838,12 +10838,15 @@ void ShowExampleAppAssetsBrowser(bool* p_open)
 // Ported from a Lua/UEVR script; logic rewritten cleanly in C++.
 //-----------------------------------------------------------------------------
 
-void ShowExampleAppPong(bool* p_open)
+void ShowExampleAppPong(bool* p_open, bool fill_viewport)
 {
     IMGUI_DEMO_MARKER("Examples/Pong");
-    ImGui::SetNextWindowSize(ImVec2(820.0f, 560.0f), ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin("Example: Pong", p_open,
-                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_MenuBar))
+    ImGuiWindowFlags pong_flags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_MenuBar;
+    if (fill_viewport)
+        pong_flags |= ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoBringToFrontOnFocus;
+    else
+        ImGui::SetNextWindowSize(ImVec2(820.0f, 560.0f), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Example: Pong", p_open, pong_flags))
     {
         ImGui::End();
         return;
@@ -11230,12 +11233,15 @@ void ShowExampleAppPong(bool* p_open)
 // same shape as the Pong example, applied to a heavier game.
 //-----------------------------------------------------------------------------
 
-void ShowExampleAppTetris(bool* p_open)
+void ShowExampleAppTetris(bool* p_open, bool fill_viewport)
 {
     IMGUI_DEMO_MARKER("Examples/Tetris");
-    ImGui::SetNextWindowSize(ImVec2(720.0f, 720.0f), ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin("Example: Tetris", p_open,
-        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_MenuBar))
+    ImGuiWindowFlags tet_flags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_MenuBar;
+    if (fill_viewport)
+        tet_flags |= ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoBringToFrontOnFocus;
+    else
+        ImGui::SetNextWindowSize(ImVec2(720.0f, 720.0f), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Example: Tetris", p_open, tet_flags))
     {
         ImGui::End();
         return;

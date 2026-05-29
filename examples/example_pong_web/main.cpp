@@ -21,8 +21,8 @@
 #endif
 
 // Defined in imgui_demo.cpp (non-static so we can call them here)
-extern void ShowExampleAppPong(bool* p_open);
-extern void ShowExampleAppTetris(bool* p_open);
+extern void ShowExampleAppPong(bool* p_open, bool fill_viewport = false);
+extern void ShowExampleAppTetris(bool* p_open, bool fill_viewport = false);
 
 int main(int, char**)
 {
@@ -125,9 +125,9 @@ int main(int, char**)
         ImGui_ImplSDL2_NewFrame();
         ImGui::NewFrame();
 
-        // Tab strip pinned to the top — selecting a tab decides which game gets called this frame
-        // so only the active one reads input. (Without this, both Pong and Tetris would react to
-        // the same SPACE press at the same time.)
+        // Tab strip pinned to the top — selecting a tab decides which game gets called this
+        // frame so only the active one reads input. (Without this, both Pong and Tetris would
+        // react to the same SPACE press at the same time.)
         static int active_tab = 0;
         ImGui::SetNextWindowPos(ImVec2(0, 0));
         ImGui::SetNextWindowSize(ImVec2(io.DisplaySize.x, 0.0f));
@@ -141,10 +141,14 @@ int main(int, char**)
             if (ImGui::BeginTabItem("Tetris")) { active_tab = 1; ImGui::EndTabItem(); }
             ImGui::EndTabBar();
         }
+        float tab_strip_h = ImGui::GetWindowHeight();
         ImGui::End();
 
-        if (active_tab == 0) { pong_open = true; ShowExampleAppPong(&pong_open); }
-        else                 { tetris_open = true; ShowExampleAppTetris(&tetris_open); }
+        // Fit the active game to the rest of the viewport every frame so resize/rotate just works.
+        ImGui::SetNextWindowPos(ImVec2(0.0f, tab_strip_h));
+        ImGui::SetNextWindowSize(ImVec2(io.DisplaySize.x, io.DisplaySize.y - tab_strip_h));
+        if (active_tab == 0) { pong_open = true; ShowExampleAppPong(&pong_open, true); }
+        else                 { tetris_open = true; ShowExampleAppTetris(&tetris_open, true); }
 
         ImGui::Render();
         glViewport(0, 0, (int)io.DisplaySize.x, (int)io.DisplaySize.y);
